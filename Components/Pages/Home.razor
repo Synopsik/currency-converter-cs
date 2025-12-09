@@ -24,7 +24,7 @@ else
 
         <!-- TO dropdown -->
         <select @bind="_selectedTo" @bind:after="LoadTableData">
-            <option value="*">Every</option>
+            <option value="*">*</option>
             @foreach (var currency in _allCurrencies)
             {
                 <option value="@currency">@currency.ToUpper()</option>
