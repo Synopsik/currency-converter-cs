@@ -1,48 +1,173 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
 @using currency_converter_cs.Components.Models
-@inject ExchangeRateService RateService
+@inject ExchangeRateService ExchangeRateService
 
 <PageTitle>Home</PageTitle>
 
-@if (_list is null)
+@if (_allCurrencies is null)
 {
-    <p>Loading...</p>
+    <p>Loading currencies...</p>
 }
 else
 {
-    <h3>Converting: @_currency</h3>
-    <ul>
-        @foreach (var item in _list)
-        {
-            <li>@item</li>
-        }
-    </ul>
+    <div class="filters" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+        <!-- FROM dropdown -->
+        <select @bind="_selectedFrom" @bind:after="LoadTableData">
+            @foreach (var currency in _allCurrencies)
+            {
+                <option value="@currency">@currency.ToUpper()</option>
+            }
+        </select>
+
+        <!-- TO dropdown -->
+        <select @bind="_selectedTo" @bind:after="LoadTableData">
+            <option value="*">Every</option>
+            @foreach (var currency in _allCurrencies)
+            {
+                <option value="@currency">@currency.ToUpper()</option>
+            }
+        </select>
+    </div>
+
+    @if (_tableRows.Count == 0)
+    {
+        <p>No results available.</p>
+    }
+    else
+    {
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Rate</th>
+                    <th>Date</th>
+                    <th>Favorite</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _tableRows)
+                {
+                    <tr>
+                        <td>@row.From.ToUpper()</td>
+                        <td>@row.To.ToUpper()</td>
+                        <td>@row.Rate</td>
+                        <td>@row.Date</td>
+                        <td>
+                            <button @onclick="() => FavoritePair(row.From, row.To)">❤️</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
 }
 
 
-
-
 @code {
-    private HttpClient _httpClient;
+    private List<string> _allCurrencies;
+    private List<ConversionRow> _tableRows = new();
 
-    private List<string> _list = new();
-
-    private string _currency = "cad";
-    private string _date = "12/1/25";
+    private string _selectedFrom = "usd";
+    private string _selectedTo = "*";
 
     protected override async Task OnInitializedAsync()
     {
-        var response = await RateService.GetRatesAsync(_currency, _date);
+        Console.WriteLine("=== Initializing Home ===");
 
-        if (response?.Rates != null)
+        var data = await ExchangeRateService.GetRatesAsync("usd");
+
+        if (data != null)
         {
-            var rates = response.Rates[_currency].Deserialize<Dictionary<string, decimal>>();
+            var baseCurrency = data.Rates.Keys.First();
+            var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(data.Rates[baseCurrency]);
 
-            foreach (var (symbol, rate) in rates)
-                _list.Add($"{symbol}: {rate}");
+            if (dict != null)
+            {
+                _allCurrencies = dict.Keys.OrderBy(x => x).ToList();
+            }
         }
+
+        await LoadTableData();
     }
 
+    private async Task LoadTableData()
+    {
+        Console.WriteLine("=== LoadTableData CALLED ===");
+        Console.WriteLine($"SelectedFrom = {_selectedFrom}, SelectedTo = {_selectedTo}");
+
+        _tableRows.Clear();
+
+        var data = await ExchangeRateService.GetRatesAsync(_selectedFrom);
+
+        if (data == null)
+        {
+            Console.WriteLine("GetRatesAsync returned NULL");
+            return;
+        }
+
+        if (!data.Rates.TryGetValue(_selectedFrom, out var rateElement))
+        {
+            Console.WriteLine("SelectedFrom not found in dataset");
+            return;
+        }
+
+        var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
+
+        if (dict == null)
+        {
+            Console.WriteLine("dict is null");
+            return;
+        }
+
+        if (_selectedTo == "*")
+        {
+            foreach (var kvp in dict)
+            {
+                _tableRows.Add(new ConversionRow
+                {
+                    From = _selectedFrom,
+                    To = kvp.Key,
+                    Rate = kvp.Value,
+                    Date = data.Date
+                });
+            }
+        }
+        else if (dict.TryGetValue(_selectedTo, out var rate))
+        {
+            _tableRows.Add(new ConversionRow
+            {
+                From = _selectedFrom,
+                To = _selectedTo,
+                Rate = rate,
+                Date = data.Date
+            });
+        }
+
+        Console.WriteLine($"FINAL ROW COUNT: {_tableRows.Count}");
+        StateHasChanged();
+    }
+
+    private async Task FavoritePair(string from, string to)
+    {
+        var path = Path.Combine("wwwroot", "watchlist.json");
+        var favorites = new List<FavoritePair>();
+
+        if (File.Exists(path))
+        {
+            var json = await File.ReadAllTextAsync(path);
+            favorites = JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new();
+        }
+
+        if (!favorites.Any(f => f.BaseCurrency == from && f.TargetCurrency == to))
+        {
+            favorites.Add(new FavoritePair { BaseCurrency = from, TargetCurrency = to });
+
+            var newJson = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(path, newJson);
+        }
+    }
 }
