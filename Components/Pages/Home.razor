@@ -1,0 +1,48 @@
+﻿@page "/"
+@using System.Text.Json
+@using currency_converter_cs.Components.Clients
+@using currency_converter_cs.Components.Models
+@inject ExchangeRateService RateService
+
+<PageTitle>Home</PageTitle>
+
+@if (_list is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h3>Converting: @_currency</h3>
+    <ul>
+        @foreach (var item in _list)
+        {
+            <li>@item</li>
+        }
+    </ul>
+}
+
+
+
+
+@code {
+    private HttpClient _httpClient;
+
+    private List<string> _list = new();
+
+    private string _currency = "cad";
+    private string _date = "12/1/25";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var response = await RateService.GetRatesAsync(_currency, _date);
+
+        if (response?.Rates != null)
+        {
+            var rates = response.Rates[_currency].Deserialize<Dictionary<string, decimal>>();
+
+            foreach (var (symbol, rate) in rates)
+                _list.Add($"{symbol}: {rate}");
+        }
+    }
+
+}
