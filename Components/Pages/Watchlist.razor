@@ -1,6 +1,183 @@
 ﻿@page "/watchlist"
 @rendermode InteractiveServer
+@using System.Text.Json
+@using currency_converter_cs.Components.Clients
+@using currency_converter_cs.Components.Models
+@inject ExchangeRateService ExchangeRateService
 
 <PageTitle>Watchlist</PageTitle>
 
-<h1>Watchlist</h1>
+<h1>My Watchlist</h1>
+
+@if (_isLoading)
+{
+    <p><em>Loading watchlist rates...</em></p>
+}
+else if (_watchlistRows.Count == 0)
+{
+    <div class="alert alert-info">
+        Your watchlist is empty. Go to <a href="/">Home</a> to add some currency pairs!
+    </div>
+}
+else
+{
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>From</th>
+                <th>To</th>
+                <th>Latest Rate</th>
+                <th>Date</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in _watchlistRows)
+            {
+                <tr>
+                    <td><strong>@row.From.ToUpper()</strong></td>
+                    <td>@row.To.ToUpper()</td>
+                    <td>@row.Rate</td>
+                    <td>@row.Date</td>
+                    <td>
+                        <button class="btn btn-danger btn-sm"
+                                @onclick="() => RemoveFromWatchlist(row.From, row.To)">
+                            Remove
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<ConversionRow> _watchlistRows = new();
+    private bool _isLoading = true;
+    private const string WatchlistPath = "wwwroot/watchlist.json";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWatchlistData();
+    }
+
+    private async Task LoadWatchlistData()
+    {
+        _isLoading = true;
+        _watchlistRows.Clear();
+
+        // Load the raw favorites list from JSON
+        var favorites = await ReadFavoritesFromFile();
+
+        // If no favorites are found, stop the loading process
+        if (favorites.Count == 0)
+        {
+            _isLoading = false;
+            return;
+        }
+
+        // Group by Base Currency to minimize API/Service calls
+        // So, if we have USD->EUR and USD->GBP, we only fetch USD rates once.
+        var groupedFavorites = favorites
+            .GroupBy(f => f.BaseCurrency.ToLowerInvariant())
+            .ToList();
+
+        // Iterate through the unique base currencies and fetch current rates
+        foreach (var group in groupedFavorites)
+        {
+            var baseCurrency = group.Key;
+
+            // Call the service for either live or locally cached rates data (API updates data daily)
+            var data = await ExchangeRateService.GetRatesAsync(baseCurrency);
+
+            // Get our dictionary of names and rates using the baseCurrency for each group of favorites
+            if (data != null && data.Rates.TryGetValue(baseCurrency, out var rateElement))
+            {
+                // Deserialize the inner dictionary of rates "usd": { "eur": 0.85, ... }
+                var ratesDict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
+
+                // Ensure data was found
+                if (ratesDict != null)
+                {
+                    // For every favorite in this group, find the specific target rate
+                    foreach (var fav in group)
+                    {
+                        // Format currency string to lowercase
+                        var target = fav.TargetCurrency.ToLowerInvariant();
+
+                        // Ensure a decimal rate value was found
+                        if (ratesDict.TryGetValue(target, out var rateValue))
+                        {
+                            // Create a new ConversionRow and Add it to our _watchlistRows
+                            _watchlistRows.Add(new ConversionRow
+                            {
+                                From = baseCurrency,
+                                To = target,
+                                Rate = rateValue,
+                                Date = data.Date
+                            });
+                        }
+                        else
+                        {
+                            // Just in case the API doesn't return the target currency
+                            _watchlistRows.Add(new ConversionRow
+                            {
+                                From = baseCurrency,
+                                To = target,
+                                Rate = 0,
+                                Date = "N/A (Not Found)"
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        //  the flag to false so the page can switch from the default loading screen to displaying the results
+        _isLoading = false;
+    }
+
+    private async Task RemoveFromWatchlist(string baseCurrency, string targetCurrency)
+    {
+        var favorites = await ReadFavoritesFromFile();
+
+        // Gather the first FavoritePair where BaseCurrency and TargetCurrency match the provided currencies.
+        // OrdinalIgnoreCase ignores strings that mismatch cases, allowing upper and lower cases to be compared equally
+        var itemToRemove = favorites.FirstOrDefault(f =>
+            f.BaseCurrency.Equals(baseCurrency, StringComparison.OrdinalIgnoreCase) &&
+            f.TargetCurrency.Equals(targetCurrency, StringComparison.OrdinalIgnoreCase));
+
+        if (itemToRemove != null)
+        {
+            // Remove the specific pair
+            favorites.Remove(itemToRemove);
+
+            // Save the updated list back to disk
+            var json = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(WatchlistPath, json);
+
+            // Reload the table to update changes
+            await LoadWatchlistData();
+        }
+    }
+
+    private async Task<List<FavoritePair>> ReadFavoritesFromFile()
+    {
+        // Returns a new empty list of favorite pairs if our watchlist.json does NOT exist
+        if (!File.Exists(WatchlistPath))
+        {
+            return new List<FavoritePair>();
+        }
+
+        // If our watchlist.json does exist, return the deserialized list of favorite pairs
+        try
+        {
+            var json = await File.ReadAllTextAsync(WatchlistPath);
+            return JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new List<FavoritePair>();
+        }
+        // Worst case scenario, return a new empty list of favorite pairs
+        catch
+        {
+            return new List<FavoritePair>();
+        }
+    }
+}
