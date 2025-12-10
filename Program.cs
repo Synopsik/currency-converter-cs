@@ -7,13 +7,19 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Register the IHttpClientFactory service and configure a named client
 builder.Services.AddHttpClient("ExchangeApi", client =>
 {
+    // Attach global attribute BaseAddress to the client
     client.BaseAddress = new Uri("https://cdn.jsdelivr.net/npm/@fawazahmed0/");
 });
 
+// Register our services
 builder.Services.AddScoped<ExchangeRateService>();
+builder.Services.AddScoped<FavoritesService>();
+builder.Services.AddScoped<CacheService>();
 
+// Build the application
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
