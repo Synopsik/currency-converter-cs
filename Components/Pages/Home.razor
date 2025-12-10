@@ -1,51 +1,88 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@using System.Text
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
 @using currency_converter_cs.Components.Models
+@using currency_converter_cs.Components.Utils
+@inject FavoritesService Favorites
 @inject ExchangeRateService ExchangeRateService
+@inject IJSRuntime Js
 
 <PageTitle>Home</PageTitle>
 
-@if (_allCurrencies is null)
+<!-- JavaScript for handling file downloads -->
+<script>
+    // Creates a globally accessible JS function
+    window.downloadCsv = (filename, content) => {
+        // Creates an anchor element in memory
+        const element = document.createElement('a');
+        // Construct data link from the formatted table
+        element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(content));
+        // Download resource through the constructed link instead of navigating to it
+        element.setAttribute('download', filename);
+        // Force a simulated "click" on our temporary anchor element we created
+        document.body.appendChild(element);
+        element.click();
+        // Free the resource from memory after download has started
+        document.body.removeChild(element);
+    };
+</script>
+
+<h1>Daily Currency Conversion Rates</h1>
+
+@if (_allCurrencies is null || !_allCurrencies.Any())
 {
-    <p>Loading currencies...</p>
+    <p>No results available.</p>
 }
 else
 {
-    <div class="filters" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-        <!-- FROM dropdown -->
-        <select @bind="_selectedFrom" @bind:after="LoadTableData">
-            @foreach (var currency in _allCurrencies)
-            {
-                <option value="@currency">@currency.ToUpper()</option>
-            }
-        </select>
+    <!-- Updated Layout with Labels and Export Button -->
+    <div class="filters d-flex align-items-end gap-3 mb-3">
 
-        <!-- TO dropdown -->
-        <select @bind="_selectedTo" @bind:after="LoadTableData">
-            <option value="*">*</option>
-            @foreach (var currency in _allCurrencies)
-            {
-                <option value="@currency">@currency.ToUpper()</option>
-            }
-        </select>
+        <!-- FROM Group dropdown -->
+        <div>
+            <label class="form-label fw-bold mb-1">From</label>
+            <select @bind="_selectedFrom" @bind:after="LoadTableData" class="form-select" style="min-width: 100px;">
+                @foreach (var currency in _allCurrencies)
+                {
+                    <option value="@currency">@currency.ToUpper()</option>
+                }
+            </select>
+        </div>
+
+        <!-- TO Group dropdown -->
+        <div>
+            <label class="form-label fw-bold mb-1">To</label>
+            <select @bind="_selectedTo" @bind:after="LoadTableData" class="form-select" style="min-width: 100px;">
+                <option value="*">*</option>
+                @foreach (var currency in _allCurrencies)
+                {
+                    <option value="@currency">@currency.ToUpper()</option>
+                }
+            </select>
+        </div>
+
+        <!-- Export Button -->
+        <button class="btn btn-success" @onclick="ExportTable" disabled="@(_tableRows.Count == 0)">
+            Export CSV
+        </button>
     </div>
 
     @if (_tableRows.Count == 0)
     {
-        <p>No results available.</p>
+        <p>Loading data...</p>
     }
     else
     {
-        <table class="table table-striped table-bordered">
+        <table class="table table-striped table-bordered align-middle">
             <thead>
                 <tr>
                     <th>From</th>
                     <th>To</th>
                     <th>Rate</th>
                     <th>Date</th>
-                    <th>Favorite</th>
+                    <th style="text-align: center;">Favorite</th>
                 </tr>
             </thead>
             <tbody>
@@ -56,8 +93,11 @@ else
                         <td>@row.To.ToUpper()</td>
                         <td>@row.Rate</td>
                         <td>@row.Date</td>
-                        <td>
-                            <button @onclick="() => FavoritePair(row.From, row.To)">❤️</button>
+                        <td style="text-align: center;">
+                            <button class="btn btn-link p-0 text-decoration-none" style="font-size: 1.2rem;"
+                                    @onclick="() => Favorites.AddFavorite(row.From, row.To)">
+                                ❤️
+                            </button>
                         </td>
                     </tr>
                 }
@@ -69,7 +109,7 @@ else
 
 @code {
     private List<string> _allCurrencies;
-    private List<ConversionRow> _tableRows = new();
+    private readonly List<ConversionRow> _tableRows = new();
 
     private string _selectedFrom = "usd";
     private string _selectedTo = "*";
@@ -80,14 +120,18 @@ else
 
         var data = await ExchangeRateService.GetRatesAsync("usd");
 
+
+
         if (data != null)
         {
             var baseCurrency = data.Rates.Keys.First();
-            var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(data.Rates[baseCurrency]);
+            Console.WriteLine($"[INFO] Base currency: {baseCurrency}");
+            var dict = data.Rates[baseCurrency].Deserialize<Dictionary<string, decimal>>();
 
             if (dict != null)
             {
                 _allCurrencies = dict.Keys.OrderBy(x => x).ToList();
+                Console.WriteLine($"[INFO] All currencies: {_allCurrencies.First()}");
             }
         }
 
@@ -117,9 +161,11 @@ else
 
         var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
 
+        Console.WriteLine(dict);
+
         if (dict == null)
         {
-            Console.WriteLine("dict is null");
+            Console.WriteLine("[Error] Returned list is null");
             return;
         }
 
@@ -151,23 +197,26 @@ else
         StateHasChanged();
     }
 
-    private async Task FavoritePair(string from, string to)
+    private async Task ExportTable()
     {
-        var path = Path.Combine("wwwroot", "watchlist.json");
-        var favorites = new List<FavoritePair>();
+        var fileName = "";
 
-        if (File.Exists(path))
+        // Define the filename
+        if (_selectedTo == "*")
         {
-            var json = await File.ReadAllTextAsync(path);
-            favorites = JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new();
+            fileName = $"{_selectedFrom}-{DateTime.Now:yyyy.M.d}.csv";
+        }
+        else
+        {
+            fileName = $"{_selectedFrom}-to-{_selectedTo}-{DateTime.Now:yyyy.M.d}.csv";
         }
 
-        if (!favorites.Any(f => f.BaseCurrency == from && f.TargetCurrency == to))
-        {
-            favorites.Add(new FavoritePair { BaseCurrency = from, TargetCurrency = to });
+        // Format current table to CSV
+        var csvString = await CsvUtil.FormatTableToCsv(_tableRows);
 
-            var newJson = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(path, newJson);
-        }
+        // Call our globally accessible JS function "downloadCsv" to trigger the download
+        await Js.InvokeVoidAsync("downloadCsv", fileName, csvString);
     }
+
+
 }
