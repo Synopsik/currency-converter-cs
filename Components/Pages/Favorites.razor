@@ -1,22 +1,51 @@
-﻿@page "/watchlist"
+﻿@page "/favorites"
 @rendermode InteractiveServer
+@using System.Text
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
 @using currency_converter_cs.Components.Models
 @inject ExchangeRateService ExchangeRateService
+@inject IJSRuntime Js
 
-<PageTitle>Watchlist</PageTitle>
+<PageTitle>Favorites</PageTitle>
 
-<h1>My Watchlist</h1>
+<!-- JavaScript for handling file downloads (Same as Home.razor) -->
+<script>
+    window.downloadCsv = (filename, content) => {
+        const element = document.createElement('a');
+        element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(content));
+        element.setAttribute('download', filename);
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    };
+</script>
+
+<h1>My Favorites</h1>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+
+    <div class="d-flex gap-2">
+        <!-- Export Button -->
+        <button class="btn btn-success" @onclick="ExportFavoritesToCsv" disabled="@(_favoriteRows.Count == 0)">
+            Export CSV
+        </button>
+
+        <!-- Manual Refresh Button -->
+        <button class="btn btn-primary" @onclick="LoadFavoritesData">
+            Refresh Rates
+        </button>
+    </div>
+</div>
 
 @if (_isLoading)
 {
-    <p><em>Loading watchlist rates...</em></p>
+    <p><em>Loading favorite rates...</em></p>
 }
-else if (_watchlistRows.Count == 0)
+else if (_favoriteRows.Count == 0)
 {
     <div class="alert alert-info">
-        Your watchlist is empty. Go to <a href="/">Home</a> to add some currency pairs!
+        Your favorites are empty. Go to <a href="/">Home</a> to add some currency pairs!
     </div>
 }
 else
@@ -32,7 +61,7 @@ else
             </tr>
         </thead>
         <tbody>
-            @foreach (var row in _watchlistRows)
+            @foreach (var row in _favoriteRows)
             {
                 <tr>
                     <td><strong>@row.From.ToUpper()</strong></td>
@@ -41,7 +70,7 @@ else
                     <td>@row.Date</td>
                     <td>
                         <button class="btn btn-danger btn-sm"
-                                @onclick="() => RemoveFromWatchlist(row.From, row.To)">
+                                @onclick="() => RemoveFromFavorites(row.From, row.To)">
                             Remove
                         </button>
                     </td>
@@ -52,19 +81,19 @@ else
 }
 
 @code {
-    private List<ConversionRow> _watchlistRows = new();
+    private List<ConversionRow> _favoriteRows = new();
     private bool _isLoading = true;
-    private const string WatchlistPath = "wwwroot/watchlist.json";
+    private const string FavoritesPath = "wwwroot/favorites.json";
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadWatchlistData();
+        await LoadFavoritesData();
     }
 
-    private async Task LoadWatchlistData()
+    private async Task LoadFavoritesData()
     {
         _isLoading = true;
-        _watchlistRows.Clear();
+        _favoriteRows.Clear();
 
         // Load the raw favorites list from JSON
         var favorites = await ReadFavoritesFromFile();
@@ -108,8 +137,8 @@ else
                         // Ensure a decimal rate value was found
                         if (ratesDict.TryGetValue(target, out var rateValue))
                         {
-                            // Create a new ConversionRow and Add it to our _watchlistRows
-                            _watchlistRows.Add(new ConversionRow
+                            // Create a new ConversionRow and Add it to our _favoriteRows
+                            _favoriteRows.Add(new ConversionRow
                             {
                                 From = baseCurrency,
                                 To = target,
@@ -120,12 +149,12 @@ else
                         else
                         {
                             // Just in case the API doesn't return the target currency
-                            _watchlistRows.Add(new ConversionRow
+                            _favoriteRows.Add(new ConversionRow
                             {
                                 From = baseCurrency,
                                 To = target,
                                 Rate = 0,
-                                Date = "N/A (Not Found)"
+                                Date = "N/A"
                             });
                         }
                     }
@@ -136,7 +165,7 @@ else
         _isLoading = false;
     }
 
-    private async Task RemoveFromWatchlist(string baseCurrency, string targetCurrency)
+    private async Task RemoveFromFavorites(string baseCurrency, string targetCurrency)
     {
         var favorites = await ReadFavoritesFromFile();
 
@@ -153,25 +182,25 @@ else
 
             // Save the updated list back to disk
             var json = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(WatchlistPath, json);
+            await File.WriteAllTextAsync(FavoritesPath, json);
 
             // Reload the table to update changes
-            await LoadWatchlistData();
+            await LoadFavoritesData();
         }
     }
 
     private async Task<List<FavoritePair>> ReadFavoritesFromFile()
     {
-        // Returns a new empty list of favorite pairs if our watchlist.json does NOT exist
-        if (!File.Exists(WatchlistPath))
+        // Returns a new empty list of favorite pairs if our favorites.json does NOT exist
+        if (!File.Exists(FavoritesPath))
         {
             return new List<FavoritePair>();
         }
 
-        // If our watchlist.json does exist, return the deserialized list of favorite pairs
+        // If our favorites.json does exist, return the deserialized list of favorite pairs
         try
         {
-            var json = await File.ReadAllTextAsync(WatchlistPath);
+            var json = await File.ReadAllTextAsync(FavoritesPath);
             return JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new List<FavoritePair>();
         }
         // Worst case scenario, return a new empty list of favorite pairs
@@ -179,5 +208,28 @@ else
         {
             return new List<FavoritePair>();
         }
+    }
+
+    private async Task ExportFavoritesToCsv()
+    {
+        if (_favoriteRows.Count == 0) return;
+
+        // 1. Build the CSV String
+        var sb = new StringBuilder();
+
+        // Header Row
+        sb.AppendLine("From Currency,To Currency,Exchange Rate,Date");
+
+        // Data Rows
+        foreach (var row in _favoriteRows)
+        {
+            sb.AppendLine($"{row.From.ToUpper()},{row.To.ToUpper()},{row.Rate},{row.Date}");
+        }
+
+        // 2. Define a filename
+        var fileName = $"favorites-{DateTime.Now:yyyy.M.d}.csv";
+
+        // 3. Call JavaScript to trigger the download
+        await Js.InvokeVoidAsync("downloadCsv", fileName, sb.ToString());
     }
 }
