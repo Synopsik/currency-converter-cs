@@ -4,19 +4,27 @@
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
 @using currency_converter_cs.Components.Models
+@using currency_converter_cs.Components.Utils
 @inject ExchangeRateService ExchangeRateService
+@inject FavoritesService FavoritesService
 @inject IJSRuntime Js
 
 <PageTitle>Favorites</PageTitle>
 
 <!-- JavaScript for handling file downloads (Same as Home.razor) -->
 <script>
+    // Creates a globally accessible JS function
     window.downloadCsv = (filename, content) => {
+        // Creates an anchor element in memory
         const element = document.createElement('a');
+        // Construct data link from the formatted table
         element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(content));
+        // Download resource through the constructed link instead of navigating to it
         element.setAttribute('download', filename);
+        // Force a simulated "click" on our temporary anchor element we created
         document.body.appendChild(element);
         element.click();
+        // Free the resource from memory after download has started
         document.body.removeChild(element);
     };
 </script>
@@ -27,12 +35,12 @@
 
     <div class="d-flex gap-2">
         <!-- Export Button -->
-        <button class="btn btn-success" @onclick="ExportFavoritesToCsv" disabled="@(_favoriteRows.Count == 0)">
+        <button class="btn btn-success" @onclick="ExportTable" disabled="@(_tableRows.Count == 0)">
             Export CSV
         </button>
 
         <!-- Manual Refresh Button -->
-        <button class="btn btn-primary" @onclick="LoadFavoritesData">
+        <button class="btn btn-primary" @onclick="FavoritesService.LoadFavoritesData">
             Refresh Rates
         </button>
     </div>
@@ -42,7 +50,7 @@
 {
     <p><em>Loading favorite rates...</em></p>
 }
-else if (_favoriteRows.Count == 0)
+else if (_tableRows.Count == 0)
 {
     <div class="alert alert-info">
         Your favorites are empty. Go to <a href="/">Home</a> to add some currency pairs!
@@ -61,7 +69,7 @@ else
             </tr>
         </thead>
         <tbody>
-            @foreach (var row in _favoriteRows)
+            @foreach (var row in _tableRows)
             {
                 <tr>
                     <td><strong>@row.From.ToUpper()</strong></td>
@@ -70,7 +78,7 @@ else
                     <td>@row.Date</td>
                     <td>
                         <button class="btn btn-danger btn-sm"
-                                @onclick="() => RemoveFromFavorites(row.From, row.To)">
+                                @onclick="() => FavoritesService.RemoveFavorite(row.From, row.To)">
                             Remove
                         </button>
                     </td>
@@ -81,155 +89,26 @@ else
 }
 
 @code {
-    private List<ConversionRow> _favoriteRows = new();
+    private List<ConversionRow> _tableRows = new();
     private bool _isLoading = true;
-    private const string FavoritesPath = "wwwroot/favorites.json";
+
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadFavoritesData();
-    }
-
-    private async Task LoadFavoritesData()
-    {
-        _isLoading = true;
-        _favoriteRows.Clear();
-
-        // Load the raw favorites list from JSON
-        var favorites = await ReadFavoritesFromFile();
-
-        // If no favorites are found, stop the loading process
-        if (favorites.Count == 0)
-        {
-            _isLoading = false;
-            return;
-        }
-
-        // Group by Base Currency to minimize API/Service calls
-        // So, if we have USD->EUR and USD->GBP, we only fetch USD rates once.
-        var groupedFavorites = favorites
-            .GroupBy(f => f.BaseCurrency.ToLowerInvariant())
-            .ToList();
-
-        // Iterate through the unique base currencies and fetch current rates
-        foreach (var group in groupedFavorites)
-        {
-            var baseCurrency = group.Key;
-
-            // Call the service for either live or locally cached rates data (API updates data daily)
-            var data = await ExchangeRateService.GetRatesAsync(baseCurrency);
-
-            // Get our dictionary of names and rates using the baseCurrency for each group of favorites
-            if (data != null && data.Rates.TryGetValue(baseCurrency, out var rateElement))
-            {
-                // Deserialize the inner dictionary of rates "usd": { "eur": 0.85, ... }
-                var ratesDict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
-
-                // Ensure data was found
-                if (ratesDict != null)
-                {
-                    // For every favorite in this group, find the specific target rate
-                    foreach (var fav in group)
-                    {
-                        // Format currency string to lowercase
-                        var target = fav.TargetCurrency.ToLowerInvariant();
-
-                        // Ensure a decimal rate value was found
-                        if (ratesDict.TryGetValue(target, out var rateValue))
-                        {
-                            // Create a new ConversionRow and Add it to our _favoriteRows
-                            _favoriteRows.Add(new ConversionRow
-                            {
-                                From = baseCurrency,
-                                To = target,
-                                Rate = rateValue,
-                                Date = data.Date
-                            });
-                        }
-                        else
-                        {
-                            // Just in case the API doesn't return the target currency
-                            _favoriteRows.Add(new ConversionRow
-                            {
-                                From = baseCurrency,
-                                To = target,
-                                Rate = 0,
-                                Date = "N/A"
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        //  the flag to false so the page can switch from the default loading screen to displaying the results
+        _tableRows.Clear();
+        _tableRows = await FavoritesService.LoadFavoritesData();
         _isLoading = false;
     }
 
-    private async Task RemoveFromFavorites(string baseCurrency, string targetCurrency)
+    private async Task ExportTable()
     {
-        var favorites = await ReadFavoritesFromFile();
-
-        // Gather the first FavoritePair where BaseCurrency and TargetCurrency match the provided currencies.
-        // OrdinalIgnoreCase ignores strings that mismatch cases, allowing upper and lower cases to be compared equally
-        var itemToRemove = favorites.FirstOrDefault(f =>
-            f.BaseCurrency.Equals(baseCurrency, StringComparison.OrdinalIgnoreCase) &&
-            f.TargetCurrency.Equals(targetCurrency, StringComparison.OrdinalIgnoreCase));
-
-        if (itemToRemove != null)
-        {
-            // Remove the specific pair
-            favorites.Remove(itemToRemove);
-
-            // Save the updated list back to disk
-            var json = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(FavoritesPath, json);
-
-            // Reload the table to update changes
-            await LoadFavoritesData();
-        }
-    }
-
-    private async Task<List<FavoritePair>> ReadFavoritesFromFile()
-    {
-        // Returns a new empty list of favorite pairs if our favorites.json does NOT exist
-        if (!File.Exists(FavoritesPath))
-        {
-            return new List<FavoritePair>();
-        }
-
-        // If our favorites.json does exist, return the deserialized list of favorite pairs
-        try
-        {
-            var json = await File.ReadAllTextAsync(FavoritesPath);
-            return JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new List<FavoritePair>();
-        }
-        // Worst case scenario, return a new empty list of favorite pairs
-        catch
-        {
-            return new List<FavoritePair>();
-        }
-    }
-
-    private async Task ExportFavoritesToCsv()
-    {
-        if (_favoriteRows.Count == 0) return;
-
-        // 1. Build the CSV String
-        var sb = new StringBuilder();
-
-        // Header Row
-        sb.AppendLine("From Currency,To Currency,Exchange Rate,Date");
-
-        // Data Rows
-        foreach (var row in _favoriteRows)
-        {
-            sb.AppendLine($"{row.From.ToUpper()},{row.To.ToUpper()},{row.Rate},{row.Date}");
-        }
-
-        // 2. Define a filename
+        // Define the filename
         var fileName = $"favorites-{DateTime.Now:yyyy.M.d}.csv";
 
-        // 3. Call JavaScript to trigger the download
-        await Js.InvokeVoidAsync("downloadCsv", fileName, sb.ToString());
+        // Format the current table to CSV
+        var csvString = await CsvUtil.FormatTableToCsv(_tableRows);
+
+        // Call JavaScript to trigger the download
+        await Js.InvokeVoidAsync("downloadCsv", fileName, csvString);
     }
 }
