@@ -1,4 +1,6 @@
 ﻿.idea
 obj
 bin
-wwwroot/cache
+wwwroot
+.vs
+/currency-converter-cs.sln.DotSettings.user
