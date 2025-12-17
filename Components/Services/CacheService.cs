@@ -5,6 +5,7 @@
 
 using System.Text.Json;
 using currency_converter_cs.Components.Models;
+using currency_converter_cs.Components.Utils;
 
 namespace currency_converter_cs.Components.Clients;
 
@@ -27,7 +28,8 @@ public class CacheService
     public async Task<RatesResponse?> RetrieveFromCache(Rate rate)
     {
         // Create the formatted file name and combine with our cacheFolder location name
-        var cacheFileName = $"{rate.CurrencyCode}-{rate.Date}.json";
+        var normalizedDate = Formatting.NormalizeDate(rate.Date);
+        var cacheFileName = $"{rate.CurrencyCode}-{normalizedDate}.json";
         var cachePath = Path.Combine(_cacheFolder, cacheFileName);
         // If our cache file is not found
         if (!File.Exists(cachePath))
@@ -56,7 +58,8 @@ public class CacheService
     public async Task WriteToCache(RatesResponse rates)
     {
         // Get the currency name from the first key in our Rates field, then get the date string from the Date field
-        var cacheFileName = $"{rates.Rates.Keys.First()}-{rates.Date}.json";
+        var normalizedDate = Formatting.NormalizeDate(rates.Date);
+        var cacheFileName = $"{rates.Rates.Keys.First()}-{normalizedDate}.json";
         // Combine with the folder path to create our custom currency and date path
         var cachePath = Path.Combine(_cacheFolder, cacheFileName);
 
