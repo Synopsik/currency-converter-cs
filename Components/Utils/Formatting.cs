@@ -18,11 +18,9 @@ public static class Formatting
     /// <returns>A normalized string of the Date</returns>
     public static string NormalizeDate(string date)
     {
-        // If the Date empty, the user is calling the API using "latest" for the Date.
-        // Also, if lastest is passed, we can just use that for the API call
-        if (string.IsNullOrWhiteSpace(date) ||
-            string.Equals(date, "latest", StringComparison.OrdinalIgnoreCase))
-            return "latest";
+        // If the Date empty, or if lastest is passed, we return the current date (ToDateOnly will eventually parse this)
+        if (string.Equals(date, "latest", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(date))
+            return DateTime.UtcNow.ToString("yyyy.M.d");
 
         // If our Date already matches our Regex pattern, return the Date
         if (DateRegex.IsMatch(date))
