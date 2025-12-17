@@ -26,7 +26,7 @@ public static class Formatting
         if (DateRegex.IsMatch(date))
             return date;
 
-        Console.WriteLine($"[WARN] Normalizing Date: {date}");
+        Console.WriteLine($"[INFO] Normalizing Date: {date}");
         // Parse and format Date using the DateTime.TryParse method
         if (DateTime.TryParse(date, out var parsed))
             // Then return a string of that Date
