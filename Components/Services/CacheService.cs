@@ -1,4 +1,9 @@
-﻿using System.Text.Json;
+﻿// Steven Baar
+// 12/18/26
+// Currency Converter
+// Service for interacting with our local cache file
+
+using System.Text.Json;
 using currency_converter_cs.Components.Models;
 
 namespace currency_converter_cs.Components.Clients;
@@ -14,10 +19,15 @@ public class CacheService
     }
 
 
+    /// <summary>
+    /// Attempt to retrieve the list of rates from our local cache
+    /// </summary>
+    /// <param name="rate">Rate type</param>
+    /// <returns>RatesResponse of conversion rates</returns>
     public async Task<RatesResponse?> RetrieveFromCache(Rate rate)
     {
         // Create the formatted file name and combine with our cacheFolder location name
-        var cacheFileName = $"{rate.currencyCode}-{rate.date}.json";
+        var cacheFileName = $"{rate.CurrencyCode}-{rate.Date}.json";
         var cachePath = Path.Combine(_cacheFolder, cacheFileName);
         // If our cache file is not found
         if (!File.Exists(cachePath))
@@ -39,13 +49,20 @@ public class CacheService
     }
 
 
+    /// <summary>
+    /// Try and write a RatesResponse to our local cache
+    /// </summary>
+    /// <param name="rates">RatesResponse from API</param>
     public async Task WriteToCache(RatesResponse rates)
     {
+        // Get the currency name from the first key in our Rates field, then get the date string from the Date field
         var cacheFileName = $"{rates.Rates.Keys.First()}-{rates.Date}.json";
+        // Combine with the folder path to create our custom currency and date path
         var cachePath = Path.Combine(_cacheFolder, cacheFileName);
 
         try
         {
+            // Attempt to serialize and save our RatesResponse to file
             var json = JsonSerializer.Serialize(
                 rates,
                 new JsonSerializerOptions { WriteIndented = true }

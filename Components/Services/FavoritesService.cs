@@ -1,4 +1,9 @@
-﻿using System.Text.Json;
+﻿// Steven Baar
+// 12/18/26
+// Currency Converter
+// Service for interacting with the public Favorites file
+
+using System.Text.Json;
 using currency_converter_cs.Components.Models;
 
 namespace currency_converter_cs.Components.Clients;
@@ -14,26 +19,43 @@ public class FavoritesService
     }
 
 
+    /// <summary>
+    /// If our file exists, first ensure we aren't adding a duplicate.
+    /// Then add the favorite pair to our favorites and save it back to disk.
+    /// </summary>
+    /// <param name="from">From Currency</param>
+    /// <param name="to">To Currency</param>
     public async Task AddFavorite(string from, string to)
     {
+        // Construct a path for our favorites.json file in the public web root
         var path = Path.Combine("wwwroot", "favorites.json");
         var favorites = new List<FavoritePair>();
 
+        // If our file exists, read the JSON and deserialize it into a list of Favorite Pairs
         if (File.Exists(path))
         {
             var json = await File.ReadAllTextAsync(path);
             favorites = JsonSerializer.Deserialize<List<FavoritePair>>(json) ?? new();
         }
 
+        // Ensure that the current favorite from & to doesn't match any existing entries
         if (!favorites.Any(f => f.BaseCurrency == from && f.TargetCurrency == to))
         {
+            // Add our new currency pair to the entries
             favorites.Add(new FavoritePair { BaseCurrency = from, TargetCurrency = to });
 
+            // Serialize our data back to JSON and write the file
             var newJson = JsonSerializer.Serialize(favorites, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(path, newJson);
         }
     }
 
+    /// <summary>
+    /// Regardless of ordinal case, search for our item to remove.
+    /// Once found, remove the item, serialize the favorites back to JSON, and write the file to disk.
+    /// </summary>
+    /// <param name="baseCurrency">Base currency (USD)</param>
+    /// <param name="targetCurrency">Target Currency (EUR)</param>
     public async Task RemoveFavorite(string baseCurrency, string targetCurrency)
     {
         var favorites = await ReadFavoritesFromFile();
@@ -58,10 +80,13 @@ public class FavoritesService
         }
     }
 
+    /// <summary>
+    /// Gather all of our favorite pairs and group them to efficiently call our ExchangeRateServer for the favorite's data
+    /// </summary>
+    /// <returns>Live favorite conversion rates</returns>
     public async Task<List<ConversionRow>> LoadFavoritesData()
     {
         List<ConversionRow> favoriteRows = new();
-
 
         // Load the raw favorites list from JSON
         var favorites = await ReadFavoritesFromFile();
@@ -133,6 +158,10 @@ public class FavoritesService
     }
 
 
+    /// <summary>
+    /// Attempt to read Favorites from file, default to an empty Favorites list
+    /// </summary>
+    /// <returns>List of locally saved Favorites</returns>
     private async Task<List<FavoritePair>> ReadFavoritesFromFile()
     {
         // Returns a new empty list of favorite pairs if our favorites.json does NOT exist
@@ -153,6 +182,4 @@ public class FavoritesService
             return new List<FavoritePair>();
         }
     }
-
-
 }

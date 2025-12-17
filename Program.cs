@@ -1,3 +1,8 @@
+// Steven Baar
+// 12/18/26
+// Currency Converter
+// Main entry for program
+
 using currency_converter_cs.Components;
 using currency_converter_cs.Components.Clients;
 

@@ -1,44 +1,53 @@
-﻿namespace currency_converter_cs.Components.Utils;
+﻿// Steven Baar
+// 12/18/26
+// Currency Converter
+// Formatting util for converting and working with dates
+
+namespace currency_converter_cs.Components.Utils;
 using System.Text.RegularExpressions;
 
 public static class Formatting
 {
     private static readonly Regex DateRegex = new Regex(@"^\d{4}\.\d{2}\.\d{2}$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Normalizes any given Date (ex. 1/1/25, 01-02-24, etc.) to the structure of yyyy.M.d
+    /// </summary>
+    /// <param name="date">Any given string in the format of a Date</param>
+    /// <returns>A normalized string of the Date</returns>
     public static string NormalizeDate(string date)
     {
-        var normalizedDate = String.Empty;
-        // If date != "latest", try to normalize the given date to the required form yyyy.M.d
-        if (!string.Equals(date, "latest", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!DateRegex.IsMatch(date))
-            {
-                Console.WriteLine($"[WARN] Normalizing date: {date}");
-                if (DateTime.TryParse(date, out var parsed))
-                {
-                    if (parsed > DateTime.UtcNow)
-                        Console.WriteLine("[WARN] Can't search dates in the future");
+        // If the Date empty, the user is calling the API using "latest" for the Date.
+        // Also, if lastest is passed, we can just use that for the API call
+        if (string.IsNullOrWhiteSpace(date) ||
+            string.Equals(date, "latest", StringComparison.OrdinalIgnoreCase))
+            return "latest";
 
-                    normalizedDate = parsed.ToString("yyyy.M.d");
-                }
-                else
-                {
-                    Console.WriteLine($"[ERROR] Could not parse '{date}', aborting fetch...");
-                    return normalizedDate;
-                }
-            }
-        }
-        else
-        {
-            normalizedDate = DateTime.UtcNow.ToString("yyyy.M.d");
-        }
+        // If our Date already matches our Regex pattern, return the Date
+        if (DateRegex.IsMatch(date))
+            return date;
 
-        return normalizedDate;
+        Console.WriteLine($"[WARN] Normalizing Date: {date}");
+        // Parse and format Date using the DateTime.TryParse method
+        if (DateTime.TryParse(date, out var parsed))
+            // Then return a string of that Date
+            return parsed.ToString("yyyy.M.d");
+
+        // If all else fails, return the current Date
+        Console.WriteLine($"[ERROR] Could not parse '{date}', using latest instead.");
+        return DateTime.UtcNow.ToString("yyyy.M.d");
     }
 
+    /// <summary>
+    /// Converts a normalized Date string into a DateOnly type
+    /// </summary>
+    /// <param name="dateString">String in the format yyyy.M.d</param>
+    /// <returns>DateOnly representation of the string</returns>
     public static DateOnly ToDateOnly(string dateString)
     {
+        // Split the input string on the separators
         var parts = dateString.Split('.');
+        // Return the DateOnly construct
         return new DateOnly(
             int.Parse(parts[0]),
             int.Parse(parts[1]),
@@ -46,6 +55,10 @@ public static class Formatting
         );
     }
 
+    /// <summary>
+    /// Converts a DateOnly type back into a normalized Date string
+    /// </summary>
+    /// <param name="d">DateOnly types</param>
+    /// <returns>String in the format yyyy.M.d</returns>
     public static string ToApiDate(DateOnly d) => $"{d:yyyy.M.d}";
-
 }

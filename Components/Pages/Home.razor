@@ -1,4 +1,10 @@
-﻿@page "/"
+﻿@* Steven Baar *@
+@* 12/18/26 *@
+@* Currency Converter *@
+@* This page is used to display conversions for any type that the user filters for *@
+
+
+@page "/"
 @rendermode InteractiveServer
 @using System.Text
 @using System.Text.Json
@@ -37,7 +43,7 @@
 }
 else
 {
-    <!-- Updated Layout with Labels and Export Button -->
+    <!-- UpDated Layout with Labels and Export Button -->
     <div class="filters d-flex align-items-end gap-3 mb-3">
 
         <!-- FROM Group dropdown -->
@@ -63,9 +69,24 @@ else
             </select>
         </div>
 
+        <!-- DATE filter -->
+        <div>
+            <label class="form-label fw-bold mb-1">Date</label>
+            <input type="date"
+                   class="form-control"
+                   style="min-width: 150px;"
+                   @bind="_selectedDate"
+                   @bind:after="LoadTableData" />
+        </div>
+
         <!-- Export Button -->
         <button class="btn btn-success" @onclick="ExportTable" disabled="@(_tableRows.Count == 0)">
             Export CSV
+        </button>
+
+        <!-- Manual Refresh Button -->
+        <button class="btn btn-primary" @onclick="LoadTableData">
+            Refresh Rates
         </button>
     </div>
 
@@ -113,52 +134,102 @@ else
 
     private string _selectedFrom = "usd";
     private string _selectedTo = "*";
+    private DateTime? _selectedDate = DateTime.UtcNow;
+    private CancellationTokenSource _cts = new();
 
+    /// <summary>
+    /// When the page initializes, get the latest rates for usd.
+    /// Using the key "usd", deserialize all the To rates and sort them.
+    /// Finally, use the sorted list of rates as our _allCurrencies variable for filtering
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         Console.WriteLine("=== Initializing Home ===");
 
+        // Get the latest response for usd
         var data = await ExchangeRateService.GetRatesAsync("usd");
-
-
 
         if (data != null)
         {
+            // Always returns the name of the input currencyCode, "usd"
             var baseCurrency = data.Rates.Keys.First();
             Console.WriteLine($"[INFO] Base currency: {baseCurrency}");
+            // Gather the JSON representation of all the rate conversions for our baseCurrency
             var dict = data.Rates[baseCurrency].Deserialize<Dictionary<string, decimal>>();
 
             if (dict != null)
             {
+                // Sort all the To currency in ascending order and store it in a list
                 _allCurrencies = dict.Keys.OrderBy(x => x).ToList();
                 Console.WriteLine($"[INFO] All currencies: {_allCurrencies.First()}");
             }
         }
-
+        // Once the data for the filters is loaded, we can begin loading the table data
         await LoadTableData();
     }
 
+
+    /// <summary>
+    /// Attempts to load the current table data while catching and cleaning up any canceled operations
+    /// </summary>
     private async Task LoadTableData()
     {
         Console.WriteLine("=== LoadTableData CALLED ===");
         Console.WriteLine($"SelectedFrom = {_selectedFrom}, SelectedTo = {_selectedTo}");
 
+        // Triggers when a new task is created to load table data,
+        // cancel the old token so it throws current operations
+        _cts.Cancel();
+        // Then create a new token
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        try
+        {
+            // Start the new load table data operation.
+            await LoadTableDataInternal(token);
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("[INFO] Previous LoadTableData aborted.");
+        }
+    }
+
+    /// <summary>
+    /// Load the table in the contex of the To currency, From currency, and Date filters
+    /// </summary>
+    /// <param name="token">Cancellation token reference</param>
+    private async Task LoadTableDataInternal(CancellationToken token)
+    {
+        Console.WriteLine("=== LoadTableData CALLED ===");
+        token.ThrowIfCancellationRequested();
+
+        // Convert the date filter to a normalized date string
+        var date = _selectedDate.ToString();
+        var normalizedDate = Formatting.NormalizeDate(date);
+
+        // Clear the current table
         _tableRows.Clear();
+        // Use the From currency and the normalized date to query the latest rates
+        var data = await ExchangeRateService.GetRatesAsync(_selectedFrom, normalizedDate, token);
+        token.ThrowIfCancellationRequested();
 
-        var data = await ExchangeRateService.GetRatesAsync(_selectedFrom);
-
+        // If no data is found, return immediately and display the issue
         if (data == null)
         {
             Console.WriteLine("GetRatesAsync returned NULL");
             return;
         }
 
+        // If our From currency filter is not in our queried rates, return immediately and display the issue
         if (!data.Rates.TryGetValue(_selectedFrom, out var rateElement))
         {
             Console.WriteLine("SelectedFrom not found in dataset");
             return;
         }
 
+        // Deserialize the RatesResponse Rates property as a Dictionary with string keys and decimal values
+        // We can only do this if we have a generic JsonElement in our RatesResponse model
         var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
 
         Console.WriteLine(dict);
@@ -169,6 +240,7 @@ else
             return;
         }
 
+        // Display all key value pairs if our To filter is "*"
         if (_selectedTo == "*")
         {
             foreach (var kvp in dict)
@@ -182,6 +254,7 @@ else
                 });
             }
         }
+        // Otherwise use our To filter to define which ConversionRow to display
         else if (dict.TryGetValue(_selectedTo, out var rate))
         {
             _tableRows.Add(new ConversionRow
@@ -194,9 +267,15 @@ else
         }
 
         Console.WriteLine($"FINAL ROW COUNT: {_tableRows.Count}");
+        // Re-render the display
         StateHasChanged();
     }
 
+
+
+    /// <summary>
+    /// Formats our current table to CSV and starts the export by invoking our JS function
+    /// </summary>
     private async Task ExportTable()
     {
         var fileName = "";
@@ -204,19 +283,19 @@ else
         // Define the filename
         if (_selectedTo == "*")
         {
+            // If the table contains all the conversions for a currency
             fileName = $"{_selectedFrom}-{DateTime.Now:yyyy.M.d}.csv";
         }
         else
         {
+            // If the table contains a single conversion for a currency
             fileName = $"{_selectedFrom}-to-{_selectedTo}-{DateTime.Now:yyyy.M.d}.csv";
         }
 
-        // Format current table to CSV
+        // Format the current table to CSV
         var csvString = await CsvUtil.FormatTableToCsv(_tableRows);
 
         // Call our globally accessible JS function "downloadCsv" to trigger the download
         await Js.InvokeVoidAsync("downloadCsv", fileName, csvString);
     }
-
-
 }
