@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 
 public static class Formatting
 {
+    // Regex pattern to determine if the input date matches yyyy.M.d
     private static readonly Regex DateRegex = new Regex(@"^\d{4}\.\d{2}\.\d{2}$", RegexOptions.Compiled);
 
     /// <summary>
