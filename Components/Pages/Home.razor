@@ -5,7 +5,7 @@
 
 
 @page "/"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
@@ -161,7 +161,6 @@ else
             {
                 // Sort all the To currency in ascending order and store it in a list
                 _allCurrencies = dict.Keys.OrderBy(x => x).ToList();
-                Console.WriteLine($"[INFO] All currencies: {_allCurrencies.First()}");
             }
         }
         // Once the data for the filters is loaded, we can begin loading the table data
@@ -175,7 +174,7 @@ else
     private async Task LoadTableData()
     {
         Console.WriteLine("=== LoadTableData CALLED ===");
-        Console.WriteLine($"SelectedFrom = {_selectedFrom}, SelectedTo = {_selectedTo}");
+        Console.WriteLine($"[INFO] SelectedFrom = {_selectedFrom}, SelectedTo = {_selectedTo}");
 
         // Triggers when a new task is created to load table data,
         // cancel the old token so it throws current operations
@@ -201,7 +200,6 @@ else
     /// <param name="token">Cancellation token reference</param>
     private async Task LoadTableDataInternal(CancellationToken token)
     {
-        Console.WriteLine("=== LoadTableData CALLED ===");
         token.ThrowIfCancellationRequested();
 
         // Convert the date filter to a normalized date string
@@ -231,8 +229,6 @@ else
         // Deserialize the RatesResponse Rates property as a Dictionary with string keys and decimal values
         // We can only do this if we have a generic JsonElement in our RatesResponse model
         var dict = JsonSerializer.Deserialize<Dictionary<string, decimal>>(rateElement);
-
-        Console.WriteLine(dict);
 
         if (dict == null)
         {

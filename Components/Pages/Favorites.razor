@@ -4,7 +4,7 @@
 @* This page is used to display the stored favorites for the user *@
 
 @page "/favorites"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text
 @using System.Text.Json
 @using currency_converter_cs.Components.Clients
